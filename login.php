@@ -1,154 +1,102 @@
 <?php
 session_start();
-// ตรวจสอบว่าไฟล์ config อยู่ในตำแหน่งที่ถูกต้อง (สมมติว่า login.php อยู่ในโฟลเดอร์ admin และ config.php อยู่ในโฟลเดอร์หลัก)
-include '../config/config.php'; 
+// ป้องกันการแคชของเบราว์เซอร์
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Cache-Control: post-check=0, pre-check=0", false);
+header("Pragma: no-cache");
+
+// รวมไฟล์เชื่อมต่อฐานข้อมูล
+include '../config/config.php';
 
 $message = '';
 
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    // ป้องกัน XSS
-    $username = $_POST['username'] ?? '';
-    $password = $_POST['password'] ?? '';
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $email = trim($_POST['email'] ?? '');
+    $password = trim($_POST['password'] ?? '');
 
-    // เตรียมคำสั่ง SQL
-    $sql = "SELECT id, password FROM admins WHERE name = ?";
-    $stmt = $conn->prepare($sql);
+    $sql = "SELECT userID, username, password FROM User WHERE email = ?";
     
-    if ($stmt) {
-        $stmt->bind_param("s", $username);
+    try {
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) throw new Exception("Prepare failed: " . $conn->error);
+        
+        $stmt->bind_param("s", $email);
         $stmt->execute();
         $result = $stmt->get_result();
-        
+
         if ($result->num_rows > 0) {
             $user = $result->fetch_assoc();
-            
-            // ตรวจสอบรหัสผ่านที่ถูกแฮช
             if (password_verify($password, $user['password'])) {
-                $_SESSION['admin_logged_in'] = true;
-                $_SESSION['admin_id'] = $user['id'];
-                // เปลี่ยนเส้นทางไปยัง Dashboard
-                header("Location: dashboard.php");
+                $_SESSION['user_id'] = $user['userID'];
+                $_SESSION['username'] = $user['username'];
+                header("Location: ../public/index.php");
                 exit();
             } else {
-                $message = "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง";
+                $message = "รหัสผ่านไม่ถูกต้อง";
             }
         } else {
-            $message = "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง";
+            $message = "ไม่พบผู้ใช้ด้วยอีเมลนี้";
         }
+
         $stmt->close();
-    } else {
-        // กรณีเกิดข้อผิดพลาดในการเตรียมคำสั่ง SQL
-        $message = "เกิดข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล";
+    } catch (Exception $e) {
+        $message = "เกิดข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล: " . $e->getMessage();
+    }
+
+    if (isset($conn)) {
+        $conn->close();
     }
 }
-// ปิดการเชื่อมต่อ
-$conn->close();
 ?>
 <!DOCTYPE html>
 <html lang="th">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>เข้าสู่ระบบผู้ดูแลระบบ | EXCLUSIVE ACCESS</title>
+    <title>เข้าสู่ระบบผู้ใช้งาน</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- ใช้ Kanit font -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;700&display=swap" rel="stylesheet">
     <style>
-        body { 
-            font-family: 'Kanit', sans-serif; 
-        }
-        /* พื้นหลัง Dark Mode สลับกับ Gradient */
-        .login-bg {
-            background-color: #0d1117; /* Dark background */
-            background-image: radial-gradient(circle at 100% 100%, #1e293b 0%, #0d1117 50%);
-        }
-        /* สไตล์สำหรับกล่องฟอร์มที่ดูมีมิติ */
-        .premium-card {
-            background-color: #1f2937; /* Gray-800 Dark */
-            border: 1px solid #374151; /* Gray-700 Border */
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5), 0 30px 60px rgba(0, 0, 0, 0.7); /* Deep Shadow */
-        }
-        /* กำหนดสีฟิลด์ input เมื่อโฟกัส */
-        input:focus {
-            border-color: #fbbf24 !important; /* Amber-400 Gold */
-            box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.4) !important; /* Custom Gold Focus Ring */
-            background-color: #111827 !important; /* Darker input background */
-            color: #f3f4f6; /* Light text */
-        }
-        /* สไตล์ไอคอนสีทอง */
-        .icon-gold {
-            color: #fbbf24;
-        }
-        /* ปุ่มเข้าสู่ระบบแบบ Gradient */
-        .btn-gold-gradient {
-            background-image: linear-gradient(to right, #fbbf24, #f59e0b, #d97706); /* Amber/Yellow Gradient */
-            transition: all 0.3s ease;
-        }
-        .btn-gold-gradient:hover {
-            box-shadow: 0 5px 15px rgba(251, 191, 36, 0.5);
-            transform: translateY(-2px);
+        body {
+            font-family: 'Kanit', sans-serif;
         }
     </style>
 </head>
-<body class="login-bg p-4 flex items-center justify-center min-h-screen">
-    <div class="max-w-md w-full premium-card rounded-2xl p-10 transform transition-all duration-500">
-        
-        <div class="text-center mb-8">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 icon-gold mx-auto mb-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
-            </svg>
-            <h1 class="text-3xl font-extrabold text-gray-100 tracking-wider">SECURE ACCESS</h1>
-            <p class="text-amber-400 font-semibold mt-2 border-b border-amber-500/50 pb-2 inline-block">PORTAL MANAGEMENT</p>
-        </div>
-
+<body class="font-kanit bg-emerald-50 flex items-center justify-center min-h-screen p-4">
+    <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">เข้าสู่ระบบ 🔑</h1>
         <?php if ($message): ?>
-            <div class="bg-red-900/50 border border-red-700 text-red-300 p-4 rounded-lg mb-6 text-center text-sm font-medium transition-opacity duration-300 ease-in opacity-100 shadow-md">
-                <span class="font-bold">⚠️ ERROR:</span> <?php echo htmlspecialchars($message); ?>
+            <!-- แสดงข้อความแจ้งเตือน (รหัสผ่านไม่ถูกต้อง, ไม่พบผู้ใช้) -->
+            <div class="<?php echo strpos($message, 'ไม่ถูกต้อง') !== false || strpos($message, 'ไม่พบผู้ใช้') !== false ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'; ?> p-3 rounded-md mb-4 text-center">
+                <?php echo htmlspecialchars($message); ?>
             </div>
         <?php endif; ?>
-
-        <form action="login.php" method="POST" class="space-y-6">
-            
-            <div>
-                <label for="username" class="block text-sm font-semibold text-gray-300 mb-2">USERNAME:</label>
-                <div class="relative">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                        </svg>
-                    </div>
-                    <input type="text" id="username" name="username" required 
-                           class="w-full py-3 pl-10 pr-4 border border-gray-600 bg-gray-900 rounded-lg focus:outline-none text-gray-200 shadow-inner transition duration-150 ease-in-out" 
-                           placeholder="Enter Username">
-                </div>
+        <form action="login.php" method="POST">
+            <div class="mb-4">
+                <label for="email" class="block text-gray-700 text-sm font-bold mb-2">อีเมล:</label>
+                <input type="email" id="email" name="email" required
+                        class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow">
             </div>
-            
-            <div>
-                <label for="password" class="block text-sm font-semibold text-gray-300 mb-2">PASSWORD:</label>
-                <div class="relative">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
-                        </svg>
-                    </div>
-                    <input type="password" id="password" name="password" required 
-                           class="w-full py-3 pl-10 pr-4 border border-gray-600 bg-gray-900 rounded-lg focus:outline-none text-gray-200 shadow-inner transition duration-150 ease-in-out"
-                           placeholder="Enter Password">
-                </div>
+            <div class="mb-6">
+                <label for="password" class="block text-gray-700 text-sm font-bold mb-2">รหัสผ่าน:</label>
+                <input type="password" id="password" name="password" required
+                        class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 mb-3 leading-tight focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow">
             </div>
-            
-            <button type="submit" 
-                    class="w-full btn-gold-gradient text-gray-900 font-extrabold py-3 rounded-lg shadow-xl uppercase tracking-wider">
-                LOGIN TO DASHBOARD
-            </button>
+            <div class="flex items-center justify-between">
+                <button type="submit"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-xl focus:outline-none focus:shadow-outline w-full transition-colors">
+                    เข้าสู่ระบบ
+                </button>
+            </div>
         </form>
         
-        <!-- <div class="mt-8 text-center">
-            <a href="../index.php" class="text-sm text-gray-400 hover:text-amber-400 transition-colors duration-150 border-b border-dashed border-gray-600 hover:border-amber-400">
-                ← Return to Public Site
-            </a> -->
-        </div>
+        <!-- *** ลิงก์ที่แก้ไขถูกต้องแล้ว: "สมัครสมาชิก" *** -->
+       <p class="text-center text-gray-500 text-sm mt-4">
+    ยังไม่มีบัญชี? <a href="register.php" class="text-indigo-500 hover:underline">สมัครสมาชิก</a>
+</p>
     </div>
 </body>
 </html>
